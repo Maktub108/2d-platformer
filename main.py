@@ -1,6 +1,7 @@
 import pygame
 import sys
 from levels import LevelManager, Spike, Pit
+from custom_logging import Logger
 
 # Инициализация Pygame
 pygame.init()
@@ -70,12 +71,12 @@ def main():
     clock = pygame.time.Clock()
     level_manager = LevelManager((SCREEN_WIDTH, SCREEN_HEIGHT))
     player = DemoPlayer()
-
+    Logger().initialize()
     # Автоматическое переключение уровней
     auto_level_switch = False
     switch_timer = 0
-
     running = True
+    Logger().info("Игра начата!")
     while running:
         # Обработка событий
         for event in pygame.event.get():
@@ -88,7 +89,7 @@ def main():
                     # Ручное переключение уровней
                     if level_manager.current_level.completed:
                         if not level_manager.next_level():
-                            print("Игра завершена!")
+                            Logger().info("Игра завершена!")
                             running = False
                         else:
                             player = DemoPlayer()
@@ -104,7 +105,7 @@ def main():
 
             if auto_level_switch and pygame.time.get_ticks() - switch_timer > 3000:
                 if not level_manager.next_level():
-                    print("Игра завершена!")
+                    Logger().info("Игра завершена!")
                     running = False
                 else:
                     player = DemoPlayer()
