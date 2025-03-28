@@ -1,140 +1,169 @@
 import pygame
 import sys
+from custom_logging.logger import Logger
 from levels import LevelManager, Spike, Pit
-from custom_logging import Logger
-
-# Инициализация Pygame
-pygame.init()
-
-# Настройки окна
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("2D Platformer - Level System Demo")
-
-# Цвета
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GREEN = (0, 255, 0)
-RED = (255, 0, 0)
-
-# Шрифт
-font = pygame.font.SysFont('Arial', 24)
 
 
 class DemoPlayer:
-    """Демонстрационный игрок для автоматической прокрутки уровней"""
+    """Демонстрационный игрок для автоматической прокрутки"""
 
-    def __init__(self):
-        self.rect = pygame.Rect(100, SCREEN_HEIGHT - 100, 30, 50)
+    def __init__(self, logger: Logger):
+        self.rect = pygame.Rect(100, 500, 30, 50)
         self.speed = 3
         self.is_moving = True
-        self.color = RED
+        self.color = (255, 0, 0)
+        self.logger = logger.getChild('player')
+        self.logger.info("Player initialized")
 
     def update(self, level):
-        """Автоматическое движение игрока"""
-        if self.is_moving:
-            self.rect.x += self.speed
+        if not self.is_moving:
+            return
 
-            # Проверка столкновений с препятствиями (упрощенная)
-            for obstacle in level.obstacles:
-                if obstacle.rect.colliderect(self.rect):
-                    if isinstance(obstacle, Spike):
-                        self.color = (255, 0, 0)  # Красный при столкновении с шипами
-                    elif isinstance(obstacle, Pit):
-                        self.rect.y = SCREEN_HEIGHT - 100  # "Падение" в яму
-                    break
+        self.rect.x += self.speed
 
-            # Проверка сбора бонусов
-            collected = level.collect_bonuses(self.rect)
-            if collected > 0:
-                level.score += collected
-                self.color = GREEN  # Зеленый при сборе бонусов
-                pygame.time.delay(50)  # Мигание
+        # Проверка столкновений (упрощенная)
+        for obstacle in level.obstacles:
+            if obstacle.is_active and obstacle.check_collision(self.rect):
+                if isinstance(obstacle, Spike):
+                    self.logger.warning("Player hit a spike!")
+                elif isinstance(obstacle, Pit):
+                    self.logger.warning("Player fell into a pit!")
 
-            # Возврат к нормальному цвету
-            if self.color == GREEN and pygame.time.get_ticks() % 200 < 100:
-                self.color = RED
+        # Сбор бонусов
+        collected = level.collect_bonuses(self.rect)
+        if collected > 0:
+            self.logger.info(f"Collected {collected} points")
 
-            # Проверка достижения финиша
-            if level.check_finish(self.rect):
-                level.completed = True
-                self.is_moving = False
+        # Проверка финиша
+        if level.check_finish(self.rect):
+            self.is_moving = False
+            self.logger.info("Player reached finish")
 
     def draw(self, surface):
-        """Отрисовка игрока"""
         pygame.draw.rect(surface, self.color, self.rect)
 
 
+def initialize_logger():
+    """Инициализация логгера с обработкой разных случаев"""
+    try:
+        # Пробуем разные варианты инициализации
+        try:
+            logger = Logger('main')  # Если логгер принимает имя
+        except TypeError:
+            logger = Logger()  # Если логгер без параметров
+        logger.info("Logger initialized successfully")
+        return logger
+    except Exception as e:
+        print(f"CRITICAL: Failed to initialize logger: {str(e)}")
+
+        # Фолбэк-логгер
+        class FallbackLogger:
+            def __init__(self): self.name = "fallback"
+
+            def info(self, msg): print(f"[INFO] {msg}")
+
+            def debug(self, msg): print(f"[DEBUG] {msg}")
+
+            def warning(self, msg): print(f"[WARN] {msg}")
+
+            def error(self, msg): print(f"[ERROR] {msg}")
+
+            def getChild(self, name): return self
+
+        return FallbackLogger()
+
+
 def main():
-    """Основной игровой цикл"""
-    clock = pygame.time.Clock()
-    level_manager = LevelManager((SCREEN_WIDTH, SCREEN_HEIGHT))
-    player = DemoPlayer()
-    Logger().initialize()
-    # Автоматическое переключение уровней
-    auto_level_switch = False
-    switch_timer = 0
-    running = True
-    Logger().info("Игра начата!")
-    while running:
-        # Обработка событий
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+    """Основная функция игры"""
+    # Инициализация логгера
+    logger = initialize_logger()
+
+    try:
+        logger.info("Starting game initialization")
+
+        # Инициализация Pygame
+        pygame.init()
+        SCREEN_WIDTH = 800
+        SCREEN_HEIGHT = 600
+        screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("2D Platformer - Level Demo")
+        logger.info("Pygame initialized")
+
+        # Инициализация игровых систем
+        clock = pygame.time.Clock()
+        font = pygame.font.SysFont('Arial', 24)
+        level_manager = LevelManager((SCREEN_WIDTH, SCREEN_HEIGHT), logger)
+        player = DemoPlayer(logger)
+        logger.info("Game systems initialized")
+
+        # Автоматическое переключение уровней
+        auto_switch_timer = 0
+        switching_level = False
+
+        # Основной игровой цикл
+        logger.info("Entering main game loop")
+        running = True
+        while running:
+            # Обработка событий
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    logger.info("Received quit event")
                     running = False
-                elif event.key == pygame.K_SPACE:
-                    # Ручное переключение уровней
-                    if level_manager.current_level.completed:
-                        if not level_manager.next_level():
-                            Logger().info("Игра завершена!")
-                            running = False
-                        else:
-                            player = DemoPlayer()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        logger.info("ESC pressed, exiting")
+                        running = False
 
-        # Обновление игрового состояния
-        if not level_manager.current_level.completed:
-            player.update(level_manager.current_level)
-        else:
-            # Автоматическое переключение через 3 секунды
-            if not auto_level_switch:
-                auto_level_switch = True
-                switch_timer = pygame.time.get_ticks()
+            # Обновление игры
+            if not level_manager.current_level.completed:
+                player.update(level_manager.current_level)
+                level_manager.update()
+            else:
+                if not switching_level:
+                    switching_level = True
+                    auto_switch_timer = pygame.time.get_ticks()
+                    logger.info("Level completed, waiting 3 seconds")
 
-            if auto_level_switch and pygame.time.get_ticks() - switch_timer > 3000:
-                if not level_manager.next_level():
-                    Logger().info("Игра завершена!")
-                    running = False
-                else:
-                    player = DemoPlayer()
-                    auto_level_switch = False
+                if pygame.time.get_ticks() - auto_switch_timer > 3000:
+                    if not level_manager.next_level():
+                        logger.info("All levels completed!")
+                        running = False
+                    else:
+                        player = DemoPlayer(logger)
+                        switching_level = False
 
-        level_manager.update()
+            # Отрисовка
+            level_manager.draw(screen)
+            player.draw(screen)
 
-        # Отрисовка
-        level_manager.draw(screen)
-        player.draw(screen)
+            # Отображение информации
+            info_texts = [
+                f"Level: {level_manager.current_level_num}",
+                f"Score: {level_manager.current_level.score}",
+                f"Total: {level_manager.total_score}"
+            ]
+            for i, text in enumerate(info_texts):
+                screen.blit(font.render(text, True, (255, 255, 255)), (10, 10 + i * 30))
 
-        # Отображение информации
-        level_text = font.render(f"Уровень: {level_manager.current_level_num}", True, WHITE)
-        score_text = font.render(f"Счет: {level_manager.current_level.score}", True, WHITE)
-        total_text = font.render(f"Общий счет: {level_manager.total_score}", True, WHITE)
+            if level_manager.current_level.completed:
+                completion_text = font.render(
+                    level_manager.get_level_completion_message(),
+                    True,
+                    (255, 255, 255)
+                )
+                text_rect = completion_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                screen.blit(completion_text, text_rect)
 
-        screen.blit(level_text, (10, 10))
-        screen.blit(score_text, (10, 40))
-        screen.blit(total_text, (10, 70))
+            pygame.display.flip()
+            clock.tick(60)
 
-        if level_manager.current_level.completed:
-            completion_text = font.render(level_manager.get_level_completion_message(), True, WHITE)
-            screen.blit(completion_text, (SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2 - 20))
-
-        pygame.display.flip()
-        clock.tick(60)
-
-    pygame.quit()
-    sys.exit()
+    except Exception as e:
+        logger.error(f"Game crashed: {str(e)}", exc_info=True)
+        raise
+    finally:
+        logger.info("Shutting down game")
+        pygame.quit()
+        sys.exit()
 
 
 if __name__ == "__main__":
